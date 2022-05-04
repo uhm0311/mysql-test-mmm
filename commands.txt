@@ -1,0 +1,105 @@
+# docker install
+sudo yum remove docker \
+                  docker-client \
+                  docker-client-latest \
+                  docker-common \
+                  docker-latest \
+                  docker-latest-logrotate \
+                  docker-logrotate \
+                  docker-engine
+sudo yum install -y yum-utils
+sudo yum-config-manager \
+    --add-repo \
+    https://download.docker.com/linux/centos/docker-ce.repo
+sudo yum install docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-compose
+sudo systemctl start docker
+
+# db1
+./mysql1.sh
+./mysqlterm.sh
+
+# db2
+./mysql2.sh
+./mysqlterm.sh
+
+# db1
+GRANT REPLICATION CLIENT                 ON *.* TO 'mmm_monitor'@'%' IDENTIFIED BY 'monitor_password';
+GRANT SUPER, REPLICATION CLIENT, PROCESS ON *.* TO 'mmm_agent'@'%'   IDENTIFIED BY 'agent_password';
+GRANT REPLICATION SLAVE                  ON *.* TO 'replication'@'%' IDENTIFIED BY 'replication_password';
+FLUSH PRIVILEGES;
+
+SHOW MASTER STATUS;
+
+# db2
+GRANT REPLICATION CLIENT                 ON *.* TO 'mmm_monitor'@'%' IDENTIFIED BY 'monitor_password';
+GRANT SUPER, REPLICATION CLIENT, PROCESS ON *.* TO 'mmm_agent'@'%'   IDENTIFIED BY 'agent_password';
+GRANT REPLICATION SLAVE                  ON *.* TO 'replication'@'%' IDENTIFIED BY 'replication_password';
+FLUSH PRIVILEGES;
+
+CHANGE MASTER TO master_host='10.34.93.238', master_port=3336, master_user='replication', master_password='replication_password', master_log_file='mysql-bin.000003', master_log_pos=1188;
+START SLAVE;
+SHOW SLAVE STATUS\G
+SHOW MASTER STATUS;
+
+# db1
+CHANGE MASTER TO master_host='10.34.92.234', master_port=3336, master_user='replication', master_password='replication_password', master_log_file='mysql-bin.000003', master_log_pos=1188;
+START SLAVE;
+SHOW SLAVE STATUS\G
+
+# db1
+./mysql-mmm-agent1.sh
+
+#db2
+./mysql-mmm-agent2.sh
+
+# monitor
+./mysql-mmm-monitor.sh
+
+sudo mmm_control show
+sudo mmm_control set_online db1
+sudo mmm_control set_online db2
+sudo mmm_control show
+
+# db1
+./mysqlterm-write.sh
+
+CREATE DATABASE test;
+USE test;
+CREATE TABLE test1 (id INT PRIMARY KEY);
+INSERT INTO test1 VALUES (1);
+
+# db2
+./mysqlterm-read.sh
+
+USE test;
+SELECT * FROM test1;
+
+# db1
+sudo docker kill mysql
+
+# monitor
+sudo mmm_control show
+
+# db2
+./mysqlterm-write.sh
+
+USE test;
+INSERT INTO test1 VALUES (2);
+
+# db1
+sudo docker start mysql
+./mysqlterm-read.sh
+
+USE test;
+SELECT * from test1;
+
+# monitor
+sudo mmm_control show
+
+# clean in db1, db2
+./clean.sh
+./clean-images.sh
+./clean-mmm.sh
+
+# clean in monitor
+./clean-mmm.sh
